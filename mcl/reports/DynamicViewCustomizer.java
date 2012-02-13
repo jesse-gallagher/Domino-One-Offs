@@ -21,6 +21,7 @@ import java.util.*;
 
 import javax.faces.component.UIComponent;
 import javax.faces.context.FacesContext;
+import javax.faces.el.ValueBinding;
 
 import lotus.domino.*;
 
@@ -28,6 +29,8 @@ import com.raidomatic.xml.*;
 import mcl.JSFUtil;
 
 public class DynamicViewCustomizer extends DominoViewCustomizer {
+	UIDynamicViewPanel panel;
+	
 	public ViewFactory getViewFactory() {
 		return new DynamicViewFactory();
 	}
@@ -67,6 +70,8 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			dxlDoc.loadInputStream(is);
 			viewDoc.recycle();
 			
+			/* Fetch both types of column information since some properties are much easier to deal
+			 * with via the standard API */
 			List<ViewColumn> viewColumns = view.getColumns();
 			List<XMLNode> dxlColumns = dxlDoc.selectNodes("//column");
 			
@@ -145,7 +150,19 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 					} else {
 						column.twistieReplicaId = twistieImage.getAttribute("database");
 					}
-					column.twistieImage = twistieImage.getAttribute("name");
+					
+					// Make sure that the referenced database is available on the current server
+					boolean setTwistie = true;
+					if(!column.twistieReplicaId.equalsIgnoreCase(database.getReplicaID())) {
+						Database twistieDB = JSFUtil.getSession().getDatabase("", "");
+						twistieDB.openByReplicaID("", column.twistieReplicaId);
+						if(!twistieDB.isOpen()) {
+							setTwistie = false;
+						}
+						twistieDB.recycle();
+					}
+					if(setTwistie) column.twistieImage = twistieImage.getAttribute("name");
+					
 				}
 				
 				columns.add(column);
@@ -166,59 +183,60 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		}
 	}
 	
+	public boolean createColumns(FacesContext context, UIDynamicViewPanel panel, ViewFactory f) {
+		// All I care about here is getting the panel for later
+		this.panel = panel;
+		return false;
+	}
+	
 	public void afterCreateColumn(FacesContext context, int index, ColumnDef colDef, IControl column) {
 		// Patch in a converter to handle special text
 		UIDynamicViewPanel.DynamicColumn col = (UIDynamicViewPanel.DynamicColumn)column.getComponent();
-		col.setConverter(new ExtendedViewColumnConverter(null, colDef));
+		col.setConverter(new ExtendedViewColumnConverter(null, colDef, panel));
 		
 		// We'll handle escaping the HTML manually, to support [<b>Notes-style</b>] pass-through-HTML
 		col.setContentType("html");
 		
-		// Deal with any twistie images
+		// Deal with any twistie images and color columns
 		if(colDef instanceof DynamicViewFactory.ExtendedColumnDef) {
 			DynamicViewFactory.ExtendedColumnDef extColDef = (DynamicViewFactory.ExtendedColumnDef)colDef;
+			
 			if(extColDef.twistieImage.length() > 0) {
 				// Assume that it's a multi-image well for now
 				col.setCollapsedImage("/.ibmxspres/domino/__" + extColDef.twistieReplicaId + ".nsf/" + extColDef.twistieImage.replaceAll("\\\\", "/") + "?Open&ImgIndex=2");
 				col.setExpandedImage("/.ibmxspres/domino/__" + extColDef.twistieReplicaId + ".nsf/" + extColDef.twistieImage.replaceAll("\\\\", "/") + "?Open&ImgIndex=1");
 			}
+			
+			if(extColDef.colorColumn.length() > 0) {
+				String styleFormula = "#{javascript:" + getClass().getName() + ".colorColumnToStyle(" + panel.getVar() + ".getColumnValue('" + extColDef.colorColumn + "'))}";
+				ValueBinding style = context.getApplication().createValueBinding(styleFormula);
+				col.setValueBinding("style", style);
+			}
 		}
       }
 	public class ExtendedViewColumnConverter extends ViewColumnConverter {
 		ColumnDef colDef;
+		UIDynamicViewPanel panel;
 		
-		
-		public ExtendedViewColumnConverter(ViewDef viewDef, ColumnDef colDef) {
+		public ExtendedViewColumnConverter(ViewDef viewDef, ColumnDef colDef, UIDynamicViewPanel panel) {
 			super(viewDef, colDef);
 			this.colDef = colDef;
+			this.panel = panel;
 		}
 		
 		@Override
 		public String getValueAsString(FacesContext context, UIComponent component, Object value) {
 			// First, apply any color-color info needed
-			String cellStyle = "";
-			DominoViewEntry entry = getViewEntry(context, component);
-			if(colDef instanceof DynamicViewFactory.ExtendedColumnDef) {
-				
-				String colorColumn = ((DynamicViewFactory.ExtendedColumnDef)colDef).colorColumn;
-				if(colorColumn.length() > 0) {
-					cellStyle = colorColumnToStyle(entry.getColumnValue(colorColumn));
-				} else {
-					cellStyle = "";
-				}
-			}
-			String styleBox = entry.isCategory() ? "" : "<div class=\"color-column-box\" style=\"" + cellStyle + "\">";
-			String styleBoxEnd = entry.isCategory() ? "" : "</div>";
-			
+			DominoViewEntry entry = resolveViewEntry(context, panel.getVar());
 			try {
 				if(value instanceof DateTime) {
-					return styleBox + getValueDateTimeAsString(context, component, ((DateTime)value).toJavaDate()) + styleBoxEnd;
+					return getValueDateTimeAsString(context, component, ((DateTime)value).toJavaDate());
 				}
 				if(value instanceof Date) {
-					return styleBox + getValueDateTimeAsString(context, component, (Date)value) + styleBoxEnd;
+					return getValueDateTimeAsString(context, component, (Date)value);
 				}
 				if(value instanceof Number) {
-					return styleBox + getValueNumberAsString(context, component, (Number)value) + styleBoxEnd;
+					return getValueNumberAsString(context, component, (Number)value);
 				}
 			} catch(NotesException ex) { }
 			
@@ -232,8 +250,14 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			// Process the entry as Notes-style pass-through-HTML
 			stringValue = handlePassThroughHTML(stringValue);
 			
+			
+			// Add in some text for empty categories
+			if(entry.isCategory() && stringValue.length() == 0) {
+				stringValue = "(Not Categorized)";
+			}
+			
 			// Include a &nbsp; to avoid weird styling problems when the content itself is empty or not visible
-			return styleBox + stringValue + (entry.isCategory() ? "" : "&nbsp;") + styleBoxEnd;
+			return stringValue;
 		}
 		
 		private String handlePassThroughHTML(String cellData) {
@@ -252,36 +276,35 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			return cellData;
 		}
 		
-		@SuppressWarnings("unchecked")
-		private String colorColumnToStyle(Object colorValuesObj) {
-			String cellStyle = "";
-			if(colorValuesObj instanceof List) {
-				List<Double> colorValues = (List<Double>)colorValuesObj;
-				if(colorValues.size() > 3) {
-					// Then we have a background color
-					if(colorValues.get(0) != -1) {
-						// Then the background is not pass-through
-						cellStyle = "background-color: rgb(" + colorValues.get(0).intValue() + ", " + colorValues.get(1).intValue() + ", " + colorValues.get(2).intValue() + ");";
-					} else {
-						cellStyle = "";
-					}
-					if(colorValues.get(3) != -1) {
-						// Then main color is not pass-through
-						cellStyle += "color: rgb(" + colorValues.get(3).intValue() + ", " + colorValues.get(4).intValue() + ", " + colorValues.get(5).intValue() + ");";
-					}
+		private DominoViewEntry resolveViewEntry(FacesContext context, String var) {
+			return (DominoViewEntry)context.getApplication().getVariableResolver().resolveVariable(context, var);
+		}
+	}
+	
+	@SuppressWarnings("unchecked")
+	public static String colorColumnToStyle(Object colorValuesObj) {
+		String cellStyle = "";
+		if(colorValuesObj instanceof List) {
+			List<Double> colorValues = (List<Double>)colorValuesObj;
+			if(colorValues.size() > 3) {
+				// Then we have a background color
+				if(colorValues.get(0) != -1) {
+					// Then the background is not pass-through
+					cellStyle = "background-color: rgb(" + colorValues.get(0).intValue() + ", " + colorValues.get(1).intValue() + ", " + colorValues.get(2).intValue() + ");";
 				} else {
-					// Then it's just a text color
-					if(colorValues.get(0) != -1) {
-						cellStyle += "color: rgb(" + colorValues.get(0).intValue() + ", " + colorValues.get(1).intValue() + ", " + colorValues.get(2).intValue() + ");";
-					}
+					cellStyle = "";
+				}
+				if(colorValues.get(3) != -1) {
+					// Then main color is not pass-through
+					cellStyle += "color: rgb(" + colorValues.get(3).intValue() + ", " + colorValues.get(4).intValue() + ", " + colorValues.get(5).intValue() + ");";
+				}
+			} else {
+				// Then it's just a text color
+				if(colorValues.get(0) != -1) {
+					cellStyle += "color: rgb(" + colorValues.get(0).intValue() + ", " + colorValues.get(1).intValue() + ", " + colorValues.get(2).intValue() + ");";
 				}
 			}
-			return cellStyle;
 		}
-		private DominoViewEntry getViewEntry(FacesContext context, UIComponent component) {
-			UIComponent panel = component;
-			while(panel != null && !(panel instanceof UIDynamicViewPanel)) { panel = panel.getParent(); }
-			return (DominoViewEntry)context.getApplication().getVariableResolver().resolveVariable(context, ((UIDynamicViewPanel)panel).getVar());
-		}
+		return cellStyle;
 	}
 }
