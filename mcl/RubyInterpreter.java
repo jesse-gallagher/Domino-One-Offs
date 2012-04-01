@@ -21,7 +21,6 @@ public class RubyInterpreter extends HttpServlet {
 	public void doGet(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
 		PrintWriter out = res.getWriter();
 		
-		
 		try {
 			NotesThread.sinitThread();
 			// Create a session using the currently-authenticated user
@@ -41,13 +40,16 @@ public class RubyInterpreter extends HttpServlet {
 				String dxl = fileResource.generateXML();
 				String rubyCode = new String(new BASE64Decoder().decodeBuffer(strLeft(strRight(dxl, "<filedata>\n"), "\n</filedata>")));
 				
+				// Add some important environment variables as constants
 				container.put("$session", session);
 				container.put("$database", database);
 				container.put("$request", req);
 				container.put("$response", res);
 				
-				container.setOutput(out);
-				container.setError(out);
+				// Set the writer to be the HTTP output
+				container.setWriter(out);
+				
+				// Execute the code
 				container.runScriptlet(rubyCode);
 			}
 			
