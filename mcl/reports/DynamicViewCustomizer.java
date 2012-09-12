@@ -2,7 +2,7 @@
  * Extends objects from https://svn-166.openntf.org/svn/xpages/extlib/eclipse/plugins/com.ibm.xsp.extlib.domino/src/com/ibm/xsp/extlib/component/dynamicview/ViewDesign.java
  */
 
-package mcl.reports;
+package frostillicus;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -14,15 +14,7 @@ import javax.faces.component.UIComponent;
 import javax.faces.context.FacesContext;
 import javax.faces.el.ValueBinding;
 
-import lotus.domino.ColorObject;
-import lotus.domino.Database;
-import lotus.domino.DateTime;
-import lotus.domino.Document;
-import lotus.domino.NotesException;
-import lotus.domino.Session;
-import lotus.domino.View;
-import lotus.domino.ViewColumn;
-import mcl.JSFUtil;
+import lotus.domino.*;
 
 import com.ibm.commons.util.SystemCache;
 import com.ibm.xsp.FacesExceptionEx;
@@ -37,6 +29,7 @@ import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.DefaultViewDef;
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.DefaultViewFactory;
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.ViewDef;
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.ViewFactory;
+import com.ibm.xsp.extlib.util.ExtLibUtil;
 import com.ibm.xsp.model.domino.wrapped.DominoViewEntry;
 import com.raidomatic.xml.XMLDocument;
 import com.raidomatic.xml.XMLNode;
@@ -117,7 +110,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 						if(hideWhen.getAttribute("enabled") == null || !hideWhen.getAttribute("enabled").equals("false")) {
 							String hideWhenFormula = hideWhen.getText();
 							if(hideWhenFormula.length() > 0) {
-								List<Object> evalResult = JSFUtil.getSession().evaluate(hideWhenFormula, contextDoc);
+								List<Object> evalResult = ExtLibUtil.getCurrentSession().evaluate(hideWhenFormula, contextDoc);
 								if(evalResult.size() > 0 && evalResult.get(0) instanceof Double && (Double)evalResult.get(0) == 1) {
 									column.flags |= DefaultColumnDef.FLAG_HIDDEN;
 								}
@@ -217,7 +210,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 					// the current server
 					boolean setTwistie = true;
 					if(!column.twistieReplicaId.equalsIgnoreCase(database.getReplicaID())) {
-						Database twistieDB = JSFUtil.getSession().getDatabase("", "");
+						Database twistieDB = ExtLibUtil.getCurrentSession().getDatabase("", "");
 						twistieDB.openByReplicaID("", column.twistieReplicaId);
 						if(!twistieDB.isOpen()) {
 							setTwistie = false;
@@ -398,7 +391,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			String stringValue = value.toString();
 
 			try {
-				stringValue = JSFUtil.specialTextDecode(stringValue, entry);
+				stringValue = specialTextDecode(stringValue, entry);
 			} catch(NotesException ne) {}
 
 			// Process the entry as Notes-style pass-through-HTML
@@ -427,13 +420,13 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 				for(String chunk : cellChunks) {
 					if(chunk.contains(">]")) {
 						String[] smallChunks = chunk.split(">]", -2);
-						cellData += "<" + smallChunks[0] + ">" + JSFUtil.xmlEncode(smallChunks[1]);
+						cellData += "<" + smallChunks[0] + ">" + xmlEncode(smallChunks[1]);
 					} else {
-						cellData += JSFUtil.xmlEncode(chunk);
+						cellData += xmlEncode(chunk);
 					}
 				}
 			} else {
-				cellData = JSFUtil.xmlEncode(cellData);
+				cellData = xmlEncode(cellData);
 			}
 			return cellData;
 		}
@@ -590,7 +583,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 
 	private String notesColorToCSS(int notesColor) {
 		try {
-			Session session = JSFUtil.getSession();
+			Session session = ExtLibUtil.getCurrentSession();
 			ColorObject colorObject = session.createColorObject();
 			colorObject.setNotesColor(notesColor);
 
@@ -607,5 +600,290 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		} catch(NotesException ne) {
 			return "";
 		}
+	}
+
+	public static String strLeft(String input, String delimiter) {
+		return input.substring(0, input.indexOf(delimiter));
+	}
+	public static String strRight(String input, String delimiter) {
+		return input.substring(input.indexOf(delimiter) + delimiter.length());
+	}
+	public static String strLeftBack(String input, String delimiter) {
+		return input.substring(0, input.lastIndexOf(delimiter));
+	}
+	public static String strLeftBack(String input, int chars) {
+		return input.substring(0, input.length() - chars);
+	}
+	public static String strRightBack(String input, String delimiter) {
+		return input.substring(input.lastIndexOf(delimiter) + delimiter.length());
+	}
+	public static String strRightBack(String input, int chars) {
+		return input.substring(input.length() - chars);
+	}
+
+	public static String xmlEncode(String text) {
+		StringBuilder result = new StringBuilder();
+
+		for(int i = 0; i < text.length(); i++) {
+			char currentChar = text.charAt(i);
+			if(!((currentChar >= 'a' && currentChar <= 'z') || (currentChar >= 'A' && currentChar <= 'Z') || (currentChar >= '0' && currentChar <= '9'))) {
+				result.append("&#" + (int)currentChar + ";");
+			} else {
+				result.append(currentChar);
+			}
+		}
+
+		return result.toString();
+	}
+
+	public static String specialTextDecode(String specialText, ViewEntry viewEntry) throws NotesException {
+		String result = specialText;
+		//if(true) return result;
+
+		String specialStart = "";
+		String specialEnd = "�";
+
+		// First, find the start and end of the special text
+		int start_pos = result.indexOf(specialStart);
+		int end_pos = result.indexOf(specialEnd);
+
+		// This is just in case things get out of hand - no need to have broken code
+		//	result in an infinite loop on the server
+		int loopStopper = 1;
+		while(start_pos > -1 && end_pos > start_pos && loopStopper < 100) {
+			loopStopper++;
+
+			// "working" holds the text we're going to replace, minus the delimiters
+			// "result" holds the text we're going to replace working and the delimiters with
+			String working = result.substring(start_pos+1, end_pos);
+			String midResult = "";
+			String[] choices;
+			int offset, length, parameterCount;
+
+			switch(working.charAt(0)) {
+			case 'C':
+				// @DocChildren
+				parameterCount = Integer.parseInt(working.substring(1, 2));
+				switch(parameterCount) {
+				case 0:
+					midResult = viewEntry.getChildCount() + "";
+					break;
+				case 1:
+					midResult = strRight(working, "=").replaceAll("%", viewEntry.getChildCount() + "");
+					break;
+				case 2:
+					// For convenience, I'll break the string into each option, even if I only use one
+					choices = new String[] { "", "" };
+
+					// I can cheat a bit on the first one to find the length
+					offset = 0;
+					length = Integer.parseInt(strLeft(strRight(working, ";"), "="));
+					choices[0] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					offset = working.indexOf("=", offset) + 1 + length;
+					choices[1] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					if(viewEntry.getChildCount() == 0) {
+						midResult = choices[0].replaceAll("%", "0");
+					} else {
+						midResult = choices[1].replaceAll("%", viewEntry.getChildCount() + "");
+					}
+
+					break;
+				case 3:
+					// For convenience, I'll break the string into each option, even if I only use one
+					choices = new String[] { "", "", "" };
+
+					// I can cheat a bit on the first one to find the length
+					offset = 0;
+					length = Integer.parseInt(strLeft(strRight(working, ";"), "="));
+					choices[0] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					offset = working.indexOf("=", offset) + 2 + length;
+					length = Integer.parseInt(working.substring(offset, working.indexOf("=", offset)));
+					choices[1] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					offset = working.indexOf("=", offset) + 2 + length;
+					length = Integer.parseInt(working.substring(offset, working.indexOf("=", offset)));
+					choices[2] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					if(viewEntry.getChildCount() == 0) {
+						midResult = choices[0].replaceAll("%", "0");
+					} else if(viewEntry.getChildCount() == 1) {
+						midResult = choices[1].replaceAll("%", "1");
+					} else {
+						midResult = choices[2].replaceAll("%", viewEntry.getChildCount() + "");
+					}
+
+					break;
+				}
+				break;
+			case 'D':
+				// @DocDescendants
+				parameterCount = Integer.parseInt(working.substring(1, 2));
+				switch(parameterCount) {
+				case 0:
+					midResult = viewEntry.getDescendantCount() + "";
+					break;
+				case 1:
+					midResult = strRight(working, "=").replaceAll("%", viewEntry.getDescendantCount() + "");
+					break;
+				case 2:
+					// For convenience, I'll break the string into each option, even if I only use one
+					choices = new String[] { "", "" };
+
+					// I can cheat a bit on the first one to find the length
+					offset = 0;
+					length = Integer.parseInt(strLeft(strRight(working, ";"), "="));
+					choices[0] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					offset = working.indexOf("=", offset) + 1 + length;
+					choices[1] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					if(viewEntry.getDescendantCount() == 0) {
+						midResult = choices[0].replaceAll("%", "0");
+					} else {
+						midResult = choices[1].replaceAll("%", viewEntry.getDescendantCount() + "");
+					}
+
+					break;
+				case 3:
+					// For convenience, I'll break the string into each option, even if I only use one
+					choices = new String[] { "", "", "" };
+
+					// I can cheat a bit on the first one to find the length
+					offset = 0;
+					length = Integer.parseInt(strLeft(strRight(working, ";"), "="));
+					choices[0] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					offset = working.indexOf("=", offset) + 2 + length;
+					length = Integer.parseInt(working.substring(offset, working.indexOf("=", offset)));
+					choices[1] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					offset = working.indexOf("=", offset) + 2 + length;
+					length = Integer.parseInt(working.substring(offset, working.indexOf("=", offset)));
+					choices[2] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					if(viewEntry.getDescendantCount() == 0) {
+						midResult = choices[0].replaceAll("%", "0");
+					} else if(viewEntry.getDescendantCount() == 1) {
+						midResult = choices[1].replaceAll("%", "1");
+					} else {
+						midResult = choices[2].replaceAll("%", viewEntry.getDescendantCount() + "");
+					}
+
+					break;
+				}
+				break;
+			case 'H':
+				// @DocLevel
+				midResult = (viewEntry.getIndentLevel()+1) + ""; 
+				break;
+			case 'A':
+				// @DocNumber
+				/* Three forms:
+				 * @DocNumber - all levels separated by "."
+				 * @DocNumber("") - only the least significant level
+				 * @DocNumber(char) - all levels separated by char. Note: the formula accepts a multi-character string, but
+				 * 	displays it as just the string, not the doc level
+				 */
+				parameterCount = Integer.parseInt(working.substring(1, 2));
+				switch(parameterCount) {
+				case 0:
+					midResult = viewEntry.getPosition('.');
+					break;
+				case 1:
+					String delimiter = strRight(working, "=");
+					if(delimiter.length() == 0) {
+						midResult = strRightBack(viewEntry.getPosition('.'), ".");
+					} else if(delimiter.length() > 1) {
+						// Mimic formula's weird behavior for multi-character strings
+						midResult = delimiter;
+					} else {
+						midResult = viewEntry.getPosition(delimiter.charAt(0));
+					}
+					break;
+				}
+				break;
+			case 'J':
+				// @DocParentNumber
+				// Same as above, just for the parent, so do the same thing and chomp off the last bit
+				if(viewEntry.getIndentLevel() == 0) {
+					midResult = "";
+				} else {
+					parameterCount = Integer.parseInt(working.substring(1, 2));
+					switch(parameterCount) {
+					case 0:
+						midResult = strLeftBack(viewEntry.getPosition('.'), ".");
+						break;
+					case 1:
+						String delimiter = strRight(working, "=");
+						if(delimiter.length() == 0) {
+							midResult = strRightBack(strLeftBack(viewEntry.getPosition('.'), "."), ".");
+						} else if(delimiter.length() > 1) {
+							// Mimic formula's weird behavior for multi-character strings
+							midResult = delimiter;
+						} else {
+							midResult = strLeftBack(viewEntry.getPosition(delimiter.charAt(0)), delimiter);
+						}
+						break;
+					}
+				}
+				break;
+			case 'B':
+				// @DocSiblings
+				midResult = (viewEntry.getSiblingCount()) + "";
+				break;
+			case 'I':
+				// @IsCategory
+				/* Three forms:
+				 * @IsCategory - "*" if it's a category, "" otherwise
+				 * @IsCategory(string) - string if it's a category, "" otherwise
+				 * @IsCategory(string1, string 2) - string1 if it's a category, string2 otherwise
+				 */
+				parameterCount = Integer.parseInt(working.substring(1, 2));
+				switch(parameterCount) {
+				case 0:
+					midResult = viewEntry.isCategory() ? "*" : "";
+					break;
+				case 1:
+					midResult = viewEntry.isCategory() ? strRight(working, "=") : "";
+					break;
+				case 2:
+					// For convenience, I'll break the string into each option, even if I only use one
+					choices = new String[] { "", "" };
+					offset = 0;
+					length = Integer.parseInt(strLeft(strRight(working, ";"), "="));
+					choices[0] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					offset = working.indexOf("=", offset) + 2 + length;
+					length = Integer.parseInt(working.substring(offset, working.indexOf("=", offset)));
+					choices[1] = working.substring(working.indexOf("=", offset)+1, working.indexOf("=", offset)+1+length);
+
+					midResult = viewEntry.isCategory() ? choices[0] : choices[1];
+
+					break;
+				}
+
+				break;
+			case 'G':
+				// @IsExpandable
+				// This is a UI function that changes based on the expanded/collapsed state of the entry in
+				//	the Notes client. This kind of behavior could be better done without @functions on the web,
+				//	so it's not really worth implementing
+				midResult = "";
+				break;
+			default:
+				midResult = working;
+			break;
+			}
+
+			result = result.replaceAll(specialStart + working + specialEnd, midResult);
+
+			start_pos = result.indexOf(specialStart);
+			end_pos = result.indexOf(specialEnd);
+		}
+
+		return result;
 	}
 }
