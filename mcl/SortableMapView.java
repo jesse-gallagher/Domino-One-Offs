@@ -73,7 +73,7 @@ public class SortableMapView extends TabularDataModel implements Serializable, T
 		if(!columnName.equals(this.sortColumn)) {
 			// Switching columns means switch back to ascending by default
 			this.sortOrder = sortOrder.equals("descending") ? "descending" : "ascending";
-			Collections.sort(this.data, new MapComparator(columnName, true));
+			Collections.sort(this.data, new MapComparator(columnName, this.sortOrder.equals("ascending")));
 			this.sortColumn = columnName;
 		} else {
 			this.sortColumn = columnName;
