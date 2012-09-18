@@ -2,7 +2,7 @@
  * Extends objects from https://svn-166.openntf.org/svn/xpages/extlib/eclipse/plugins/com.ibm.xsp.extlib.domino/src/com/ibm/xsp/extlib/component/dynamicview/ViewDesign.java
  */
 
-package frostillicus;
+package mcl.reports;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -26,7 +26,6 @@ import com.ibm.xsp.extlib.component.dynamicview.DominoDynamicColumnBuilder.Domin
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.ColumnDef;
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.DefaultColumnDef;
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.DefaultViewDef;
-import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.DefaultViewFactory;
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.ViewDef;
 import com.ibm.xsp.extlib.component.dynamicview.ViewDesign.ViewFactory;
 import com.ibm.xsp.extlib.util.ExtLibUtil;
@@ -35,19 +34,29 @@ import com.raidomatic.xml.XMLDocument;
 import com.raidomatic.xml.XMLNode;
 
 
-public class DynamicViewCustomizer extends DominoViewCustomizer {
-	UIDynamicViewPanel panel;
+public class DynamicViewCustomizer extends DominoViewCustomizer implements Serializable {
+	private static final long serialVersionUID = -5126984721484501732L;
+
+	private String panelId = "";
 
 	@Override
 	public ViewFactory getViewFactory() {
 		return new DynamicViewFactory();
 	}
 
-	public class DynamicViewFactory extends DefaultViewFactory {
+	public static class DynamicViewFactory implements ViewFactory, Serializable {
 		private static final long serialVersionUID = 123034173761337005L;
-		private transient final SystemCache views = new SystemCache("View Definition", 16, "xsp.extlib.viewdefsize");
+		private SystemCache views = new SystemCache("View Definition", 16, "xsp.extlib.viewdefsize");
 
-		@Override
+		private void writeObject(ObjectOutputStream out) throws IOException {
+			this.views = null;
+			out.defaultWriteObject();
+		}
+		private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+			in.defaultReadObject();
+			this.views = new SystemCache("View Definition", 16, "xsp.extlib.viewdefsize");
+		}
+
 		public ViewDef getViewDef(View view) {
 			if(view == null) {
 				return null;
@@ -242,7 +251,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			return columns;
 		}
 
-		public class ExtendedColumnDef extends DefaultColumnDef implements Serializable {
+		public static class ExtendedColumnDef extends DefaultColumnDef implements Serializable {
 			private static final long serialVersionUID = 5158008403553374867L;
 
 			public String colorColumn;
@@ -263,16 +272,17 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			public int headerFontColor = 0;
 		}
 	}
-
 	@Override
-	public boolean createColumns(FacesContext context, UIDynamicViewPanel panel, ViewFactory f) {
-		// All I care about here is getting the panel for later
-		this.panel = panel;
-		return false;
+	public IControl createColumn(FacesContext context, UIDynamicViewPanel panel, int index, ColumnDef colDef) {
+		this.panelId = panel.getId();
+		return super.createColumn(context, panel, index, colDef);
 	}
 
+	//@Override
 	@Override
 	public void afterCreateColumn(FacesContext context, int index, ColumnDef colDef, IControl column) {
+		UIDynamicViewPanel panel = (UIDynamicViewPanel)ExtLibUtil.getComponentFor(context.getViewRoot(), panelId);
+
 		// Patch in a converter to handle special text and icon columns
 		UIDynamicViewPanel.DynamicColumn col = (UIDynamicViewPanel.DynamicColumn)column.getComponent();
 		if(colDef.isIcon()) {
@@ -280,9 +290,9 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			// string-based ones
 			col.setValueBinding("iconSrc", null);
 			col.setDisplayAs("");
-			col.setConverter(new IconColumnConverter(null, colDef, this.panel));
+			col.setConverter(new IconColumnConverter(null, colDef, panel));
 		} else {
-			col.setConverter(new ExtendedViewColumnConverter(null, colDef, this.panel));
+			col.setConverter(new ExtendedViewColumnConverter(null, colDef, panel));
 		}
 
 		// Apply a general style class to indicate that it's not just some
@@ -346,7 +356,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			style += "; color: " + this.notesColorToCSS(extColDef.fontColor);
 
 			if(extColDef.colorColumn.length() > 0) {
-				String styleFormula = "#{javascript:'" + style.replace("'", "\\'") + ";' + " + this.getClass().getName() + ".colorColumnToStyle(" + this.panel.getVar() + ".getColumnValue('"
+				String styleFormula = "#{javascript:'" + style.replace("'", "\\'") + ";' + " + this.getClass().getName() + ".colorColumnToStyle(" + panel.getVar() + ".getColumnValue('"
 				+ extColDef.colorColumn + "'))}";
 				ValueBinding styleBinding = context.getApplication().createValueBinding(styleFormula);
 				col.setValueBinding("style", styleBinding);
@@ -359,9 +369,9 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		col.setHeaderClass((col.getHeaderClass() == null ? "" : col.getHeaderClass()) + headerStyleClass);
 	}
 
-	public class ExtendedViewColumnConverter extends ViewColumnConverter {
-		ColumnDef colDef;
-		UIDynamicViewPanel panel;
+	public static class ExtendedViewColumnConverter extends ViewColumnConverter {
+		private ColumnDef colDef;
+		private String panelId;
 
 		// For loading the state
 		public ExtendedViewColumnConverter() {}
@@ -369,13 +379,15 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		public ExtendedViewColumnConverter(ViewDef viewDef, ColumnDef colDef, UIDynamicViewPanel panel) {
 			super(viewDef, colDef);
 			this.colDef = colDef;
-			this.panel = panel;
+			this.panelId = panel.getId();
 		}
 
 		@Override
 		public String getAsString(FacesContext context, UIComponent component, Object value) {
+			UIDynamicViewPanel panel = (UIDynamicViewPanel)ExtLibUtil.getComponentFor(context.getViewRoot(), panelId);
+
 			// First, apply any column-color info needed
-			DominoViewEntry entry = this.resolveViewEntry(context, this.panel.getVar());
+			DominoViewEntry entry = this.resolveViewEntry(context, panel.getVar());
 			try {
 				if(value instanceof DateTime) {
 					return this.getValueDateTimeAsString(context, component, ((DateTime)value).toJavaDate());
@@ -409,10 +421,6 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 			return stringValue;
 		}
 
-		// @Override public String getAsString(FacesContext context, UIComponent
-		// component, Object value) { return this.getValueAsString(context,
-		// component, value); }
-
 		private String handlePassThroughHTML(String cellData) {
 			if(cellData.contains("[<") && cellData.contains(">]")) {
 				String[] cellChunks = cellData.split("\\[\\<", -2);
@@ -438,12 +446,9 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		@Override
 		public Object saveState(FacesContext context) {
 			Object[] superState = (Object[])super.saveState(context);
-			Object[] state = new Object[5];
-			state[0] = superState[0];
-			state[1] = superState[1];
-			state[2] = superState[2];
-			state[3] = this.colDef;
-			state[4] = this.panel;
+			Object[] state = new Object[superState.length+2];
+			state[superState.length] = this.colDef;
+			state[superState.length+1] = this.panelId;
 			return state;
 		}
 
@@ -451,14 +456,13 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		public void restoreState(FacesContext context, Object value) {
 			super.restoreState(context, value);
 			Object[] state = (Object[])value;
-			this.colDef = (ColumnDef)state[3];
-			this.panel = (UIDynamicViewPanel)state[4];
+			this.colDef = (ColumnDef)state[state.length-2];
+			this.panelId = (String)state[state.length-1];
 		}
 	}
 
-	public class IconColumnConverter extends ViewColumnConverter {
-		ColumnDef colDef;
-		UIDynamicViewPanel panel;
+	public static class IconColumnConverter extends ViewColumnConverter {
+		private ColumnDef colDef;
 
 		// For loading the state
 		public IconColumnConverter() {}
@@ -466,7 +470,6 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		public IconColumnConverter(ViewDef viewDef, ColumnDef colDef, UIDynamicViewPanel panel) {
 			super(viewDef, colDef);
 			this.colDef = colDef;
-			this.panel = panel;
 		}
 
 		@SuppressWarnings("unchecked")
@@ -513,21 +516,17 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 		@Override
 		public Object saveState(FacesContext context) {
 			Object[] superState = (Object[])super.saveState(context);
-			Object[] state = new Object[5];
-			state[0] = superState[0];
-			state[1] = superState[1];
-			state[2] = superState[2];
-			state[3] = this.colDef;
-			state[4] = this.panel;
+			Object[] state = new Object[2];
+			state[0] = superState;
+			state[1] = this.colDef;
 			return state;
 		}
 
 		@Override
 		public void restoreState(FacesContext context, Object value) {
-			super.restoreState(context, value);
 			Object[] state = (Object[])value;
-			this.colDef = (ColumnDef)state[3];
-			this.panel = (UIDynamicViewPanel)state[4];
+			super.restoreState(context, state[0]);
+			this.colDef = (ColumnDef)state[1];
 		}
 
 	}
@@ -638,7 +637,6 @@ public class DynamicViewCustomizer extends DominoViewCustomizer {
 
 	public static String specialTextDecode(String specialText, ViewEntry viewEntry) throws NotesException {
 		String result = specialText;
-		//if(true) return result;
 
 		String specialStart = "";
 		String specialEnd = "�";
