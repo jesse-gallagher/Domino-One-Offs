@@ -486,10 +486,12 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 
 			result.append("<span style='white-space: nowrap'>");
 			for(Object node : listValue) {
-				if(node instanceof Double) {
+				// Handle a zero-value icon specially
+				if(node instanceof Double && ((Double)node == 0 || (Double)node == 999)) {
+					result.append("<img class='notesViewIconCustom notesViewIconBlank' src='/icons/ecblank.gif' />");
+				} else if(node instanceof Double) {
 					result.append("<img class='notesViewIconStandard' src='/icons/vwicn");
 					Double num = (Double)node;
-					// /icons/vwicn999.gif
 					if(num < 10) {
 						result.append("00");
 					} else if(num < 100) {
