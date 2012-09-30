@@ -1,8 +1,27 @@
+package mcl.reports;
+
 /*
- * Extends objects from https://svn-166.openntf.org/svn/xpages/extlib/eclipse/plugins/com.ibm.xsp.extlib.domino/src/com/ibm/xsp/extlib/component/dynamicview/ViewDesign.java
+ * � Copyright Jesse Gallagher, 2012
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License"); 
+ * you may not use this file except in compliance with the License. 
+ * You may obtain a copy of the License at:
+ * 
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software 
+ * distributed under the License is distributed on an "AS IS" BASIS, 
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or 
+ * implied. See the License for the specific language governing 
+ * permissions and limitations under the License.
+ * 
+ * Author: Jesse Gallagher
  */
 
-package mcl.reports;
+/*
+ * The latest version is available from https://github.com/jesse-gallagher/Domino-One-Offs/blob/master/mcl/reports/DynamicViewCustomizer.java
+ */
+
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -446,18 +465,19 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 		@Override
 		public Object saveState(FacesContext context) {
 			Object[] superState = (Object[])super.saveState(context);
-			Object[] state = new Object[superState.length+2];
-			state[superState.length] = this.colDef;
-			state[superState.length+1] = this.panelId;
+			Object[] state = new Object[3];
+			state[0] = superState;
+			state[1] = this.colDef;
+			state[2] = this.panelId;
 			return state;
 		}
 
 		@Override
 		public void restoreState(FacesContext context, Object value) {
-			super.restoreState(context, value);
 			Object[] state = (Object[])value;
-			this.colDef = (ColumnDef)state[state.length-2];
-			this.panelId = (String)state[state.length-1];
+			super.restoreState(context, state[0]);
+			this.colDef = (ColumnDef)state[1];
+			this.panelId = (String)state[2];
 		}
 	}
 
