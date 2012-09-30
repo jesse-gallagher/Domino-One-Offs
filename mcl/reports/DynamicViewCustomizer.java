@@ -1,7 +1,7 @@
 package mcl.reports;
 
 /*
- * � Copyright Jesse Gallagher, 2012
+ * © Copyright Jesse Gallagher, 2012
  * 
  * Licensed under the Apache License, Version 2.0 (the "License"); 
  * you may not use this file except in compliance with the License. 
@@ -297,7 +297,6 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 		return super.createColumn(context, panel, index, colDef);
 	}
 
-	//@Override
 	@Override
 	public void afterCreateColumn(FacesContext context, int index, ColumnDef colDef, IControl column) {
 		UIDynamicViewPanel panel = (UIDynamicViewPanel)ExtLibUtil.getComponentFor(context.getViewRoot(), panelId);
