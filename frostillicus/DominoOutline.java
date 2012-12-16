@@ -42,7 +42,7 @@ public class DominoOutline extends BasicNodeList {
 						BasicLeafTreeNode viewNode = new BasicLeafTreeNode();
 						viewNode.setLabel(view.getName());
 						viewNode.setHref("/View.xsp?viewName=" + urlEncode(view.getName()));
-						viewNode.setImage("/tango/x-office-spreadsheet-mod.gif?Open&ImgIndex=1");
+						viewNode.setImage("/.ibmxspres/domino/icons/view.gif");
 
 						viewNode.setSelected(view.matches(viewName));
 
@@ -59,7 +59,7 @@ public class DominoOutline extends BasicNodeList {
 						BasicLeafTreeNode viewNode = new BasicLeafTreeNode();
 						viewNode.setLabel(view.getName());
 						viewNode.setHref("/View.xsp?viewName=" + urlEncode(view.getName()));
-						viewNode.setImage("/tango/folder.png?Open&ImgIndex=1");
+						viewNode.setImage("/.ibmxspres/domino/icons/folder.gif");
 
 						viewNode.setSelected(view.matches(viewName));
 
