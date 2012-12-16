@@ -27,6 +27,7 @@ public class DominoOutline extends BasicNodeList {
 
 			Outline tempOut = database.getOutline("MainOut");
 			viewName = (String)FacesContext.getCurrentInstance().getExternalContext().getRequestParameterMap().get("viewName");
+			viewName = viewName == null ? "" : viewName;
 
 			OutlineEntry entry = tempOut.getFirst();
 			while(entry != null) {
