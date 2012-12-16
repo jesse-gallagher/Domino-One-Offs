@@ -25,7 +25,7 @@ public class DominoOutline extends BasicNodeList {
 		try {
 			Database database = ExtLibUtil.getCurrentDatabase();
 
-			Outline tempOut = database.getOutline("MainOut");
+			Outline tempOut = database.getOutline("XSPOutline");
 			viewName = (String)FacesContext.getCurrentInstance().getExternalContext().getRequestParameterMap().get("viewName");
 			viewName = viewName == null ? "" : viewName;
 
