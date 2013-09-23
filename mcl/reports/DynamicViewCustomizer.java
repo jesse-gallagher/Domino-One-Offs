@@ -117,7 +117,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 			List<XMLNode> dxlColumns = dxlDoc.selectNodes("//column");
 
 			// Figure out if we're going to extend the last column
-			boolean extendLastColumn = dxlDoc.selectSingleNode("//view").getAttribute("extendlastcolumn").equals("true");
+			boolean extendLastColumn = dxlDoc.selectSingleNode("//view|//folder").getAttribute("extendlastcolumn").equals("true");
 
 			Document contextDoc = database.createDocument();
 			List<ColumnDef> columns = new Vector<ColumnDef>();
