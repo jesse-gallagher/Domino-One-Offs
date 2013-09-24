@@ -346,7 +346,9 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 			// For now, don't apply it at all to those columns
 			String style = "";
 			// if(!extColDef.extendColumn && !extColDef.isCategorized()) {
-			if(!extColDef.extendColumn) {
+			if (colDef.isCategorized()){
+				// do nothing
+			} else if (!extColDef.extendColumn) {
 				style = "max-width: " + (extColDef.actualWidth * extColDef.fontPointSize * 1.3) + "px; min-width: " + (extColDef.actualWidth * extColDef.fontPointSize * 1.3) + "px";
 				// style = "width: " + (extColDef.width * 11) + "px";
 				// } else if(extColDef.extendColumn &&
