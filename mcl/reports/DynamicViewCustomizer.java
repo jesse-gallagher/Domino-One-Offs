@@ -23,8 +23,14 @@ package mcl.reports;
  */
 
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.nio.charset.Charset;
+import java.text.NumberFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Vector;
@@ -33,7 +39,15 @@ import javax.faces.component.UIComponent;
 import javax.faces.context.FacesContext;
 import javax.faces.el.ValueBinding;
 
-import lotus.domino.*;
+import lotus.domino.ColorObject;
+import lotus.domino.Database;
+import lotus.domino.DateTime;
+import lotus.domino.Document;
+import lotus.domino.NotesException;
+import lotus.domino.Session;
+import lotus.domino.View;
+import lotus.domino.ViewColumn;
+import lotus.domino.ViewEntry;
 
 import com.ibm.commons.util.SystemCache;
 import com.ibm.xsp.FacesExceptionEx;
@@ -62,7 +76,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 	public ViewFactory getViewFactory() {
 		return new DynamicViewFactory();
 	}
-
+	
 	public static class DynamicViewFactory implements ViewFactory, Serializable {
 		private static final long serialVersionUID = 123034173761337005L;
 		private SystemCache views = new SystemCache("View Definition", 16, "xsp.extlib.viewdefsize");
@@ -154,6 +168,10 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 				}
 				column.colorColumn = activeColorColumn;
 
+				if(columnNode.getAttribute("hidedetailrows").equals("true")) {
+					column.hideDetailRow = true;
+				}
+				
 				// Get the header information
 				XMLNode header = columnNode.selectSingleNode("columnheader");
 				column.title = columnNode.selectSingleNode("columnheader").getAttribute("title");
@@ -277,6 +295,7 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 			public String twistieImage = "";
 			public String twistieReplicaId = "";
 			public boolean extendColumn = false;
+			public boolean hideDetailRow = false;
 			public String replicaId = "";
 			public double actualWidth;
 
@@ -303,6 +322,10 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 
 		// Patch in a converter to handle special text and icon columns
 		UIDynamicViewPanel.DynamicColumn col = (UIDynamicViewPanel.DynamicColumn)column.getComponent();
+		
+		// PPL 2013-09-12
+		col.setOpenDocAsReadonly(true);
+		
 		if(colDef.isIcon()) {
 			// For icons, override the default behavior so it can handle
 			// string-based ones
@@ -340,15 +363,14 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 				col.setCollapsedImage("/.ibmxspres/domino/__" + extColDef.twistieReplicaId + ".nsf/" + extColDef.twistieImage.replaceAll("\\\\", "/") + "?Open&ImgIndex=2");
 				col.setExpandedImage("/.ibmxspres/domino/__" + extColDef.twistieReplicaId + ".nsf/" + extColDef.twistieImage.replaceAll("\\\\", "/") + "?Open&ImgIndex=1");
 			}
-
+			
 			// The style applies to the contents of the column as well as the
 			// column itself, which messes with icon columns
 			// For now, don't apply it at all to those columns
 			String style = "";
-			// if(!extColDef.extendColumn && !extColDef.isCategorized()) {
 			if (colDef.isCategorized()){
 				// do nothing
-			} else if (!extColDef.extendColumn) {
+			} else if(!extColDef.extendColumn) {
 				style = "max-width: " + (extColDef.actualWidth * extColDef.fontPointSize * 1.3) + "px; min-width: " + (extColDef.actualWidth * extColDef.fontPointSize * 1.3) + "px";
 				// style = "width: " + (extColDef.width * 11) + "px";
 				// } else if(extColDef.extendColumn &&
@@ -368,14 +390,18 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 				styleClass += " notesViewAlignRight";
 				break;
 			}
+			
 
 			// Add font information
 			styleClass += this.fontStyleToStyleClass(extColDef.fontStyle);
 			headerStyleClass += this.fontStyleToStyleClass(extColDef.headerFontStyle);
 			// style += "; font-face: '" + extColDef.fontFace + "'";
-			style += "; color: " + this.notesColorToCSS(extColDef.fontColor);
+			if (!style.equals("")) style += "; ";
+			if (!extColDef.isLink()){
+				style += "color: " + this.notesColorToCSS(extColDef.fontColor);
+			}
 
-			if(extColDef.colorColumn.length() > 0) {
+			if(extColDef.colorColumn.length() > 0 && !extColDef.isLink()) {
 				String styleFormula = "#{javascript:'" + style.replace("'", "\\'") + ";' + " + this.getClass().getName() + ".colorColumnToStyle(" + panel.getVar() + ".getColumnValue('"
 				+ extColDef.colorColumn + "'))}";
 				ValueBinding styleBinding = context.getApplication().createValueBinding(styleFormula);
@@ -401,6 +427,28 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 			this.colDef = colDef;
 			this.panelId = panel.getId();
 		}
+				
+		// PPL 2013-09-25 BEGIN
+		@Override
+		public String getValueNumberAsString(FacesContext context, UIComponent component, Number value) {
+			NumberFormat f;
+			if (colDef.isNumberAttribPercent()){
+				f = NumberFormat.getPercentInstance();
+			} else {
+				f = NumberFormat.getInstance();
+			}
+			if (colDef.isNumberAttribPunctuated()){
+				f.setGroupingUsed(true);
+			} else {
+				f.setGroupingUsed(false);
+			}
+			int numDigits = colDef.getNumberDigits();
+			f.setMaximumFractionDigits(numDigits);
+			f.setMinimumFractionDigits(numDigits);
+	    	double d = value.doubleValue();
+	    	return f.format(d);
+	    }
+		// PPL 2013-09-25 END		
 
 		@Override
 		public String getAsString(FacesContext context, UIComponent component, Object value) {
@@ -418,6 +466,21 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 				if(value instanceof Number) {
 					return this.getValueNumberAsString(context, component, (Number)value);
 				}
+				// PPL 2013-09-25 BEGIN
+				if(value instanceof Vector) {
+		    		char sep = getListSeparator();
+		    		StringBuilder b = new StringBuilder();
+		    		Vector<?> v = (Vector<?>)value;
+		    		int count = v.size();
+		    		for(int i=0; i<count; i++) {
+		    			if(i>0 && sep!=0) {
+		    				b.append(sep);
+		    			}
+		    			b.append(getValueAsString(context, component, v.get(i)));
+		    		}
+		    		return b.toString();
+		    	}
+				// PPL 2013-09-25 END
 			} catch(NotesException ex) {}
 
 			String stringValue = value.toString();
@@ -461,8 +524,8 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 
 		private DominoViewEntry resolveViewEntry(FacesContext context, String var) {
 			return (DominoViewEntry)context.getApplication().getVariableResolver().resolveVariable(context, var);
-		}
-
+		} 
+		
 		@Override
 		public Object saveState(FacesContext context) {
 			Object[] superState = (Object[])super.saveState(context);
@@ -661,8 +724,8 @@ public class DynamicViewCustomizer extends DominoViewCustomizer implements Seria
 	public static String specialTextDecode(String specialText, ViewEntry viewEntry) throws NotesException {
 		String result = specialText;
 
-		String specialStart = (char)127 + "";
-		String specialEnd = (char)160 + "";
+		String specialStart = "";
+		String specialEnd = "ï¿½";
 
 		// First, find the start and end of the special text
 		int start_pos = result.indexOf(specialStart);
